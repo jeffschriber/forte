@@ -1362,6 +1362,12 @@ Localize:
     default: []
     help: "Sets the orbital space for localization"
 
+PostProcess:
+  POST_PROCESS:
+    type: list
+    default: []
+    help: "List of post processing analyses to run"
+
 MCSCF:
   MCSCF_MAXITER:
     type: int

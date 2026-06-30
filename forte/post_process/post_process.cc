@@ -32,6 +32,7 @@
 #include "psi4/libpsi4util/process.h"
 
 #include "base_classes/forte_options.h"
+#include "base_classes/scf_info.h"
 #include "helpers/printing.h"
 #include "helpers/helpers.h"
 #include "post_process/post_process.h"
@@ -43,8 +44,9 @@ namespace forte {
 PostProcess::PostProcess(const std::string method, std::shared_ptr<RDMs> rdms, std::shared_ptr<ForteOptions> options,
                   std::shared_ptr<MOSpaceInfo> mo_space_info,
                   std::shared_ptr<ForteIntegrals> ints,
+                  std::shared_ptr<SCFInfo> scf_info,
                   std::shared_ptr<ActiveSpaceIntegrals> as_ints)
-    : method_(method), rdms_(rdms), options_(options), mo_space_info_(mo_space_info), ints_(ints), as_ints_(as_ints) {
+    : method_(method), rdms_(rdms), options_(options), mo_space_info_(mo_space_info), ints_(ints), scf_info_(scf_info), as_ints_(as_ints) {
 
     nactpi_ = mo_space_info_->dimension("ACTIVE");
     nirrep_ = nactpi_.n();
@@ -374,15 +376,17 @@ void PostProcess::unpaired_density() {
         UB = UA->clone();
     }
 
-    ints_->rotate_orbitals(UA,UB);
+    //ints_->rotate_orbitals(UA,UB);
+    scf_info_->rotate_orbitals(UA,UB);
 }
 
 
 void perform_post_processing(const std::string method, std::shared_ptr<RDMs> rdms, std::shared_ptr<ForteOptions> options,
                            std::shared_ptr<MOSpaceInfo> mo_space_info,
                            std::shared_ptr<ForteIntegrals> ints,
+                           std::shared_ptr<SCFInfo> scf_info,
                            std::shared_ptr<ActiveSpaceIntegrals> as_ints) {
-    PostProcess proc(method, rdms, options, mo_space_info,ints, as_ints);
+    PostProcess proc(method, rdms, options, mo_space_info,ints, scf_info, as_ints);
     proc.process();
 }
 

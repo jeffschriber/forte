@@ -32,6 +32,7 @@
 #include <iomanip>
 
 #include "base_classes/forte_options.h"
+#include "base_classes/scf_info.h"
 #include "ci_rdm/ci_rdms.h"
 #include "integrals/active_space_integrals.h"
 #include "sparse_ci/determinant.h"
@@ -50,6 +51,7 @@ class PostProcess {
     PostProcess(const std::string method, std::shared_ptr<RDMs> rdms, std::shared_ptr<ForteOptions> options,
              std::shared_ptr<MOSpaceInfo> mo_space_info,
              std::shared_ptr<ForteIntegrals> ints,
+             std::shared_ptr<SCFInfo> scf_info,
              std::shared_ptr<ActiveSpaceIntegrals> as_ints);
 
     std::tuple<std::shared_ptr<psi::Matrix>, std::shared_ptr<psi::Matrix>, std::shared_ptr<psi::Vector>, std::shared_ptr<psi::Vector>> compute_active_nos();
@@ -72,6 +74,8 @@ class PostProcess {
 
     std::shared_ptr<ForteIntegrals> ints_;
 
+    std::shared_ptr<SCFInfo> scf_info_;
+
     std::shared_ptr<ActiveSpaceIntegrals> as_ints_;
 
     size_t nact_;
@@ -84,6 +88,7 @@ class PostProcess {
 void perform_post_processing(const std::string method, std::shared_ptr<RDMs> rdms, std::shared_ptr<ForteOptions> options,
                            std::shared_ptr<MOSpaceInfo> mo_space_info,
                            std::shared_ptr<ForteIntegrals> ints,
+                           std::shared_ptr<SCFInfo> scf_info,
                            std::shared_ptr<ActiveSpaceIntegrals> as_ints);
 
 } // namespace forte
