@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "helpers/symmetry.h"
 
 namespace psi {
 class Wavefunction;
@@ -107,10 +109,10 @@ class StateInfo {
 };
 
 /**
- * @brief make_state_info_from_psi Make a StateInfo object by reading variables set in the psi4
- *        environmental variables
+ * @brief make_state_info_from_options Make a StateInfo object by reading ForteOptions
  * @return a StateInfo object
  */
-StateInfo make_state_info_from_psi(std::shared_ptr<ForteOptions> options);
+StateInfo make_state_info_from_options(std::shared_ptr<ForteOptions> options,
+                                       const Symmetry& symmetry);
 
 } // namespace forte

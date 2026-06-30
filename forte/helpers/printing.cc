@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -27,10 +27,12 @@
  */
 
 #include <algorithm>
+#include <format>
 #include <vector>
 
 #include "psi4/psi4-dec.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
+#include "psi4/libmints/matrix.h"
 
 #include "printing.h"
 
@@ -131,5 +133,23 @@ void print_timing(const std::string& text, double seconds) {
 }
 
 const std::string& s2_label(int twiceS) { return __s2_labels.at(twiceS); }
+
+std::string matrix_to_string(const psi::Matrix& mat) {
+    std::string str = mat.name() + ":\n";
+    auto nirrep = mat.nirrep();
+    auto nsopi = mat.rowspi();
+    auto nmopi = mat.colspi();
+    for (int h = 0; h < nirrep; ++h) {
+        str += std::format("  irrep {}:\n", h);
+        for (int mu = 0; mu < nsopi.get(h); ++mu) {
+            str += std::format("    {:>3}  ", mu);
+            for (int nu = 0; nu < nmopi.get(h); ++nu) {
+                str += std::format("{:10.6f} ", mat.get(h, mu, nu));
+            }
+            str += "\n";
+        }
+    }
+    return str;
+}
 
 } // namespace forte

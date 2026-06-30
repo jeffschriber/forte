@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -69,6 +69,9 @@ class SADSRG : public DynamicCorrelationSolver {
     /// Set unitary matrix (in active space) from original to semicanonical
     void set_Uactv(ambit::Tensor& U);
 
+    /// If the amplitudes are converged or not
+    bool converged() { return converged_; }
+
   protected:
     /// Startup function called in constructor
     void startup();
@@ -108,6 +111,9 @@ class SADSRG : public DynamicCorrelationSolver {
     size_t ntamp_;
     /// Threshold for amplitudes considered as intruders
     double intruder_tamp_;
+
+    /// If the amplitudes are converged or not
+    bool converged_ = true;
 
     /// How to consider internal amplitudes
     std::string internal_amp_;
@@ -239,7 +245,7 @@ class SADSRG : public DynamicCorrelationSolver {
     ambit::BlockedTensor Eta1_;
     /// Two-body density cumulant
     ambit::BlockedTensor L2_;
-    /// Two-body density cumulant
+    /// Three-body density cumulant
     ambit::Tensor L3_;
 
     // ==> Fock matrix related <==
@@ -374,9 +380,10 @@ class SADSRG : public DynamicCorrelationSolver {
     double H2_T1_C0(BlockedTensor& H2, BlockedTensor& T1, const double& alpha, double& C0);
     /// Compute zero-body term of commutator [H2, T2], S2[ijab] = 2 * T[ijab] - T[ijba]
     std::vector<double> H2_T2_C0(BlockedTensor& H2, BlockedTensor& T2, BlockedTensor& S2,
-                                 const double& alpha, double& C0);
+                                 const double& alpha, double& C0, bool load_mps = false);
     /// Compute zero-body term of commutator [H2, T2], T2 and S2 contain at least two active indices
-    std::vector<double> H2_T2_C0_T2small(BlockedTensor& H2, BlockedTensor& T2, BlockedTensor& S2);
+    std::vector<double> H2_T2_C0_T2small(BlockedTensor& H2, BlockedTensor& T2, BlockedTensor& S2,
+                                         bool load_mps = false);
 
     /// Compute one-body term of commutator [H1, T1]
     void H1_T1_C1(BlockedTensor& H1, BlockedTensor& T1, const double& alpha, BlockedTensor& C1);
@@ -400,7 +407,7 @@ class SADSRG : public DynamicCorrelationSolver {
     void V_T1_C0_DF(BlockedTensor& B, BlockedTensor& T1, const double& alpha, double& C0);
     /// Compute zero-body term of commutator [V, T2], V is constructed from B (DF/CD)
     std::vector<double> V_T2_C0_DF(BlockedTensor& B, BlockedTensor& T1, BlockedTensor& S2,
-                                   const double& alpha, double& C0);
+                                   const double& alpha, double& C0, bool load_mps = false);
 
     /// Compute one-body term of commutator [V, T1], V is constructed from B (DF/CD)
     void V_T1_C1_DF(BlockedTensor& B, BlockedTensor& T1, const double& alpha, BlockedTensor& C1);
@@ -471,6 +478,10 @@ class SADSRG : public DynamicCorrelationSolver {
     void print_done(double t, const std::string& done = "Done");
 
     // ==> common amplitudes analysis and printing <==
+
+    /// Apply denominator to BlockedTensor T (only 1- and 2-body)
+    void apply_denominator(ambit::BlockedTensor& T, const std::vector<std::string>& Tblocks,
+                           std::function<double(double)> func);
 
     /// Prune internal amplitudes for T1
     void internal_amps_T1(BlockedTensor& T1);

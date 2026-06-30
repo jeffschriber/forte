@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -50,8 +50,15 @@ class SA_MRPT2 : public SA_DSRGPT {
     /// Compute the corr_level energy with fixed reference
     double compute_energy() override;
 
-    /// Compute the core-core and virtual-virtual parts of the unrelaxed 1-RDM
-    void build_1rdm_unrelaxed(std::shared_ptr<psi::Matrix>& D1c, std::shared_ptr<psi::Matrix>& D1v);
+    /// Compute the diagonal parts of the unrelaxed 1-RDM
+    void build_1rdm_unrelaxed(std::shared_ptr<psi::Matrix>& D1c, std::shared_ptr<psi::Matrix>& D1v,
+                              std::shared_ptr<psi::Matrix>& D1a);
+
+    /// Compute virtual part of the natural orbitals
+    std::tuple<psi::Dimension, std::shared_ptr<psi::Matrix>> build_fno();
+
+    /// Compute the virtual part of the unrelaxed 1-RDM
+    psi::SharedMatrix build_1rdm_unrelaxed_virt();
 
   protected:
     /// Start-up function called in the constructor
@@ -126,6 +133,8 @@ class SA_MRPT2 : public SA_DSRGPT {
     std::shared_ptr<psi::Matrix> build_1rdm_cc();
     /// Compute the virtual-virtual part of the unrelaxed 1-RDM
     std::shared_ptr<psi::Matrix> build_1rdm_vv();
+    /// Compute the active-active part of the unrelaxed 1-RDM
+    std::shared_ptr<psi::Matrix> build_1rdm_aa(bool build_aa_large_t2 = false);
 
     /// Return a vector of empty ambit Tensor objects
     std::vector<ambit::Tensor> init_tensor_vecs(int number_of_tensors);

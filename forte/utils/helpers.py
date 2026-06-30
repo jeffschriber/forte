@@ -98,43 +98,9 @@ def psi4_casscf(geom, basis, reference, restricted_docc, active, options={}) -> 
     # pipe output to the file output.dat
     psi4.core.set_output_file("output.dat", True)
 
-    # psi4.core.clean()
-
     # run scf and return the energy and a wavefunction object (will work only if pass return_wfn=True)
     E_scf, wfn = psi4.energy("casscf", molecule=mol, return_wfn=True)
     return (E_scf, wfn)
-
-
-def psi4_casscf(geom, basis, mo_spaces):
-    """
-    Run a Psi4 SCF.
-    :param geom: a string for molecular geometry
-    :param basis: a string for basis set
-    :param reference: a string for the type of reference
-    :return: a tuple of (scf energy, psi4 Wavefunction)
-    """
-    psi4.core.clean()
-    mol = psi4.geometry(geom)
-
-    psi4.set_options(
-        {
-            "basis": basis,
-            "scf_type": "pk",
-            "e_convergence": 1e-13,
-            "d_convergence": 1e-6,
-            "restricted_docc": mo_spaces["RESTRICTED_DOCC"],
-            "active": mo_spaces["ACTIVE"],
-            "mcscf_maxiter": 100,
-            "mcscf_e_convergence": 1.0e-11,
-            "mcscf_r_convergence": 1.0e-6,
-            "mcscf_diis_start": 20,
-        }
-    )
-    psi4.core.set_output_file("output.dat", False)
-
-    Escf, wfn = psi4.energy("casscf", return_wfn=True)
-    psi4.core.clean()
-    return Escf, wfn
 
 
 def psi4_cubeprop(wfn, path=".", orbs=[], nocc=0, nvir=0, density=False, frontier_orbitals=False, load=False):
@@ -184,7 +150,7 @@ def psi4_cubeprop(wfn, path=".", orbs=[], nocc=0, nvir=0, density=False, frontie
 
 
 def prepare_forte_objects(
-    wfn, mo_spaces=None, active_space="ACTIVE", core_spaces=["RESTRICTED_DOCC"], localize=False, localize_spaces=[]
+    wfn, mo_spaces, active_space="ACTIVE", core_spaces=["RESTRICTED_DOCC"], localize=False, localize_spaces=[]
 ):
     """Take a psi4 wavefunction object and prepare the ForteIntegrals, SCFInfo, and MOSpaceInfo objects
 
@@ -235,22 +201,25 @@ def prepare_forte_objects(
     point_group = wfn.molecule().point_group().symbol()
 
     # create a MOSpaceInfo object
-    if mo_spaces is None:
-        mo_space_info = forte.make_mo_space_info(nmopi, point_group, options)
-    else:
-        mo_space_info = forte.make_mo_space_info_from_map(nmopi, point_group, mo_spaces, [])
+    mo_space_info = forte.make_mo_space_info_from_map(nmopi, point_group, mo_spaces)
 
+    # These variables are needed in make_state_weights_map
+    nel = wfn.nalpha() + wfn.nbeta()
+    multiplicity = 1
+
+    options.set_int("NEL", nel)
+    options.set_int("MULTIPLICITY", multiplicity)
     state_weights_map = forte.make_state_weights_map(options, mo_space_info)
 
     # make a ForteIntegral object
-    ints = forte.make_ints_from_psi4(wfn, options, mo_space_info)
+    ints = forte.make_ints_from_psi4(wfn, options, scf_info, mo_space_info)
 
     if localize:
         localizer = forte.Localize(forte.forte_options, ints, mo_space_info)
         localizer.set_orbital_space(localize_spaces)
         localizer.compute_transformation()
         Ua = localizer.get_Ua()
-        ints.rotate_orbitals(Ua, Ua)
+        scf_info.rotate_orbitals(Ua, Ua)
 
     # the space that defines the active orbitals. We select only the 'ACTIVE' part
     # the space(s) with non-active doubly occupied orbitals
@@ -267,7 +236,9 @@ def prepare_forte_objects(
     }
 
 
-def prepare_ints_rdms(wfn, mo_spaces, rdm_level=3, rdm_type=forte.RDMsType.spin_dependent):
+def prepare_ints_rdms(
+    wfn, mo_spaces, rdm_level=3, rdm_type=forte.RDMsType.spin_dependent, mix_inactive=False, mix_active=False
+):
     """
     Preparation step for DSRG: compute a CAS and its RDMs.
     :param wfn: reference wave function from psi4
@@ -306,7 +277,7 @@ def prepare_ints_rdms(wfn, mo_spaces, rdm_level=3, rdm_type=forte.RDMsType.spin_
     rdms = as_solver.compute_average_rdms(state_weights_map, rdm_level, rdm_type)
 
     # semicanonicalize orbitals
-    semi = forte.SemiCanonical(mo_space_info, ints, forte.forte_options)
+    semi = forte.SemiCanonical(mo_space_info, ints, scf_info, mix_inactive, mix_active)
     semi.semicanonicalize(rdms, rdm_level)
 
     return {"reference_energy": Eref, "mo_space_info": mo_space_info, "ints": ints, "rdms": rdms}

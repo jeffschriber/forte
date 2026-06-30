@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -114,6 +114,8 @@ class CI_RDMS {
                   std::vector<double>& tprdm_ab, std::vector<double>& tprdm_aaa,
                   std::vector<double>& tprdm_aab, std::vector<double>& tprdm_abb,
                   std::vector<double>& tprdm_bbb);
+
+    size_t norb() const;
 
     void set_print(bool print) { print_ = print; }
 

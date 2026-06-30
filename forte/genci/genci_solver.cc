@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -29,6 +29,8 @@
 #include <numeric>
 
 #include "psi4/libpsi4util/process.h"
+
+#include "base_classes/forte_options.h"
 
 #include "integrals/active_space_integrals.h"
 #include "sparse_ci/ci_spin_adaptation.h"
@@ -58,8 +60,8 @@ GenCISolver::GenCISolver(StateInfo state, size_t nroot, std::shared_ptr<MOSpaceI
       active_dim_(mo_space_info->dimension("ACTIVE")), nirrep_(as_ints->ints()->nirrep()),
       symmetry_(state.irrep()) {
     // TODO: read this info from the base class
-    na_ = state.na() - core_mo_.size() - mo_space_info->size("FROZEN_DOCC");
-    nb_ = state.nb() - core_mo_.size() - mo_space_info->size("FROZEN_DOCC");
+    na_ = state.na() - mo_space_info->size("INACTIVE_DOCC");
+    nb_ = state.nb() - mo_space_info->size("INACTIVE_DOCC");
 }
 
 void GenCISolver::set_maxiter_davidson(int value) { maxiter_davidson_ = value; }

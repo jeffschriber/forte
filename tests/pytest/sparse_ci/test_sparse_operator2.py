@@ -11,22 +11,22 @@ def test_sparse_operator2():
     import psi4
     from forte import det
 
-    geom = """
+    molecule = psi4.geometry(
+        """
      H
      H 1 1.0
     """
-    scf_energy, psi4_wfn = forte.utils.psi4_scf(geom, basis="DZ", reference="RHF")
-    data = forte.modules.ObjectsUtilPsi4(ref_wnf=psi4_wfn).run()
+    )
+
+    data = forte.modules.ObjectsUtilPsi4(molecule=molecule, basis="DZ").run()
 
     as_ints = data.as_ints  # forte_objs["as_ints"]
 
-    ham_op = forte.SparseHamiltonian(as_ints)
+    ham = forte.sparse_operator_hamiltonian(as_ints)
 
-    ref = forte.StateVector({det("20"): 1.0})
-    Href1 = ham_op.compute(ref, 0.0)
-    Href2 = ham_op.compute_on_the_fly(ref, 0.0)
+    ref = forte.SparseState({det("20"): 1.0})
+    Href1 = ham @ ref
     assert Href1[det("20")] == pytest.approx(-1.094572, abs=1e-6)
-    assert Href2[det("20")] == pytest.approx(-1.094572, abs=1e-6)
 
     psi4.core.clean()
 

@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -82,7 +82,7 @@ void GenCIStringLists::startup(std::shared_ptr<MOSpaceInfo> mo_space_info) {
         cmopi_int.push_back(cmopi_[h]);
     }
 
-    auto gas_space_names = mo_space_info->composite_space_names()["ACTIVE"];
+    auto gas_space_names = mo_space_info->composite_spaces_def().at("ACTIVE");
 
     for (size_t n = 0; n < gas_space_names.size(); ++n) {
         const std::string& space = gas_space_names[n];

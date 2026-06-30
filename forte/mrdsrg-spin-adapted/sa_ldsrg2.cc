@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER,
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER,
  * AUTHORS).
  *
  * The copyrights for code used from other parties are included in
@@ -55,15 +55,15 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
     }
 
     std::string indent(4, ' ');
-    std::string dash(105, '-');
+    std::string dash(114, '-');
     std::string title;
 
     title += indent + "              Energy (a.u.)           Non-Diagonal Norm        Amplitude "
-                      "RMS         Timings (s)\n";
+                      "RMS          Timings (s)\n";
     title += indent + "       ---------------------------  ---------------------  "
-                      "---------------------  -----------------\n";
+                      "---------------------  ------------------\n";
     title += indent + "Iter.        Corr.         Delta       Hbar1      Hbar2        T1         "
-                      "T2        Hbar     Amp.    DIIS\n";
+                      "T2         Hbar     Amp.    Ncomm   DIIS\n";
     title += indent + dash;
 
     outfile->Printf("\n%s", title.c_str());
@@ -74,15 +74,18 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
 
     // iteration variables
     double Ecorr = 0.0;
-    bool converged = false;
+    converged_ = false;
 
     setup_ldsrg2_tensors();
 
     // setup DIIS
+    double T1rms = 1.0, T2rms = 1.0;
+    int bad_update_count = 0;
     if (diis_start_ > 0) {
         diis_manager_init();
     }
 
+    double Edelta = 0.0;
     // start iteration
     for (int cycle = 1; cycle <= maxiter_; ++cycle) {
         // use DT2_ as an intermediate used for compute Hbar
@@ -90,19 +93,21 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
         DT2_["ijab"] -= T2_["ijba"];
 
         // compute Hbar
+        double rsc_conv = rsc_conv_adapt_ ? get_adaptive_rsc_conv(cycle, Edelta) : rsc_conv_;
         local_timer t_hbar;
         timer hbar("Compute Hbar");
+        int ncomm = 2; // default for QC is 2 nested commutators
         if (corrlv_string_ == "LDSRG2_QC") {
             compute_hbar_qc();
         } else {
             if (sequential_Hbar_) {
-                compute_hbar_sequential();
+                ncomm = compute_hbar_sequential(rsc_conv);
             } else {
-                compute_hbar();
+                ncomm = compute_hbar(rsc_conv);
             }
         }
         hbar.stop();
-        double Edelta = Hbar0_ - Ecorr;
+        Edelta = Hbar0_ - Ecorr;
         Ecorr = Hbar0_;
         double time_hbar = t_hbar.get();
 
@@ -113,25 +118,37 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
 
         // update amplitudes
         local_timer t_amp;
+        T1rms = T1rms_;
+        T2rms = T2rms_;
         update_t();
         double time_amp = t_amp.get();
         od.stop();
 
         // printing
-        outfile->Printf("\n    %4d   %16.12f %10.3e  %10.3e %10.3e  %10.3e %10.3e  %8.3f %8.3f",
-                        cycle, Ecorr, Edelta, Hbar1od, Hbar2od, T1rms_, T2rms_, time_hbar,
-                        time_amp);
+        outfile->Printf("\n    %4d   %16.12f %10.3e  %10.3e %10.3e  %10.3e %10.3e  %8.3f %8.3f %5d",
+                        cycle, Ecorr, Edelta, Hbar1od, Hbar2od, T1rms_, T2rms_, time_hbar, time_amp,
+                        ncomm);
 
         timer diis("DIIS");
         // DIIS amplitudes
         if (diis_start_ > 0 and cycle >= diis_start_) {
+            outfile->Printf("      ");
+            if (bad_update_count > 3) {
+                psi::outfile->Printf("R/");
+                diis_manager_->reset_subspace();
+                bad_update_count = 0;
+            }
             diis_manager_add_entry();
-            outfile->Printf("  S");
+            outfile->Printf("S");
 
             if ((cycle - diis_start_) % diis_freq_ == 0 and
                 diis_manager_->subspace_size() >= diis_min_vec_) {
                 diis_manager_extrapolate();
                 outfile->Printf("/E");
+                auto tratio = T1rms_ / T1rms + T2rms_ / T2rms;
+                if (tratio > 1.0 and T1rms_ < 4.0e-3 and T2rms_ < 4.0e-3) {
+                    bad_update_count++;
+                }
             }
         }
         diis.stop();
@@ -139,7 +156,7 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
         // test convergence
         double rms = T1rms_ > T2rms_ ? T1rms_ : T2rms_;
         if (std::fabs(Edelta) < e_conv_ && rms < r_conv_) {
-            converged = true;
+            converged_ = true;
             break;
         }
 
@@ -175,18 +192,13 @@ double SA_MRDSRG::compute_energy_ldsrg2() {
     // dump amplitudes to disk
     dump_amps_to_disk();
 
-    // fail to converge
-    if (!converged) {
-        clean_checkpoints(); // clean amplitudes in scratch directory
-        throw psi::PSIEXCEPTION("The MR-LDSRG(2) computation does not converge.");
-    }
     final.stop();
 
     Hbar0_ = Ecorr;
     return Ecorr;
 }
 
-void SA_MRDSRG::compute_hbar() {
+int SA_MRDSRG::compute_hbar(double& rsc_conv) {
     if (print_ > 3) {
         outfile->Printf("\n\n  ==> Computing the DSRG Transformed Hamiltonian <==\n");
     }
@@ -206,10 +218,12 @@ void SA_MRDSRG::compute_hbar() {
     O1_["pq"] = F_["pq"];
 
     // iteration variables
+    int ncomm;
     bool converged = false;
 
     // compute Hbar recursively
     for (int n = 1; n <= rsc_ncomm_; ++n) {
+        ncomm = n;
         // prefactor before n-nested commutator
         double factor = 1.0 / n;
 
@@ -229,10 +243,10 @@ void SA_MRDSRG::compute_hbar() {
         H1_T2_C0(O1_, T2_, factor, C0);
         if (n == 1 && eri_df_) {
             V_T1_C0_DF(B_, T1_, factor, C0);
-            V_T2_C0_DF(B_, T2_, DT2_, factor, C0);
+            V_T2_C0_DF(B_, T2_, DT2_, factor, C0, (not store_cu3_) and (n != 1));
         } else {
             H2_T1_C0(O2_, T1_, factor, C0);
-            H2_T2_C0(O2_, T2_, DT2_, factor, C0);
+            H2_T2_C0(O2_, T2_, DT2_, factor, C0, (not store_cu3_) and (n != 1));
         }
 
         // one-body
@@ -262,12 +276,14 @@ void SA_MRDSRG::compute_hbar() {
             outfile->Printf("\n    %s\n", dash.c_str());
         }
 
-        // [H, A] = [H, T] + [H, T]^dagger
-        C0 *= 2.0;
-        O1_["pq"] = C1_["pq"];
-        C1_["pq"] += O1_["qp"];
-        O2_["pqrs"] = C2_["pqrs"];
-        C2_["pqrs"] += O2_["rspq"];
+        if (dsrg_trans_type_ == "UNITARY") {
+            // [H, A] = [H, T] + [H, T]^dagger
+            C0 *= 2.0;
+            O1_["pq"] = C1_["pq"];
+            C1_["pq"] += O1_["qp"];
+            O2_["pqrs"] = C2_["pqrs"];
+            C2_["pqrs"] += O2_["rspq"];
+        }
 
         // Hbar += C
         Hbar0_ += C0;
@@ -285,7 +301,7 @@ void SA_MRDSRG::compute_hbar() {
             outfile->Printf("\n  n: %3d, C0: %20.15f, C1 max: %20.15f, C2 max: %20.15f", n, C0,
                             C1_.norm(0), C2_.norm(0));
         }
-        if (std::sqrt(norm_C2 * norm_C2 + norm_C1 * norm_C1) < rsc_conv_) {
+        if (std::sqrt(norm_C2 * norm_C2 + norm_C1 * norm_C1) < rsc_conv) {
             converged = true;
             break;
         }
@@ -295,9 +311,10 @@ void SA_MRDSRG::compute_hbar() {
                         rsc_ncomm_);
         outfile->Printf("\n    Please increase DSRG_RSC_NCOMM.");
     }
+    return ncomm;
 }
 
-void SA_MRDSRG::compute_hbar_sequential() {
+int SA_MRDSRG::compute_hbar_sequential(double& rsc_conv) {
     if (print_ > 3) {
         outfile->Printf("\n\n  ==> Computing the DSRG Transformed Hamiltonian <==\n");
     }
@@ -401,9 +418,11 @@ void SA_MRDSRG::compute_hbar_sequential() {
 
     // iteration variables
     converged = false;
+    int ncomm;
 
     // compute Hbar recursively
     for (int n = 1; n <= rsc_ncomm_; ++n) {
+        ncomm = n;
         // prefactor before n-nested commutator
         double factor = 1.0 / n;
 
@@ -421,7 +440,7 @@ void SA_MRDSRG::compute_hbar_sequential() {
         if (n == 1 && eri_df_) {
             // zero-body
             H1_T2_C0(O1_, T2_, factor, C0);
-            V_T2_C0_DF(B, T2_, DT2_, factor, C0);
+            V_T2_C0_DF(B, T2_, DT2_, factor, C0, (not store_cu3_) and (n != 1));
             // one-body
             H1_T2_C1(O1_, T2_, factor, C1_);
             V_T2_C1_DF(B, T2_, DT2_, factor, C1_);
@@ -431,7 +450,7 @@ void SA_MRDSRG::compute_hbar_sequential() {
         } else {
             // zero-body
             H1_T2_C0(O1_, T2_, factor, C0);
-            H2_T2_C0(O2_, T2_, DT2_, factor, C0);
+            H2_T2_C0(O2_, T2_, DT2_, factor, C0, (not store_cu3_) and (n != 1));
             // one-body
             H1_T2_C1(O1_, T2_, factor, C1_);
             H2_T2_C1(O2_, T2_, DT2_, factor, C1_);
@@ -469,7 +488,7 @@ void SA_MRDSRG::compute_hbar_sequential() {
             outfile->Printf("\n  n: %3d, C0: %20.15f, C1 max: %20.15f, C2 max: %20.15f", n, C0,
                             C1_.norm(0), C2_.norm(0));
         }
-        if (std::sqrt(norm_C2 * norm_C2 + norm_C1 * norm_C1) < rsc_conv_) {
+        if (std::sqrt(norm_C2 * norm_C2 + norm_C1 * norm_C1) < rsc_conv) {
             converged = true;
             break;
         }
@@ -479,6 +498,7 @@ void SA_MRDSRG::compute_hbar_sequential() {
                         rsc_ncomm_);
         outfile->Printf("\n    Please increase DSRG_RSC_NCOMM.");
     }
+    return ncomm;
 }
 
 void SA_MRDSRG::compute_hbar_qc() {
@@ -730,6 +750,20 @@ void SA_MRDSRG::compute_mbar_ldsrg2(const ambit::BlockedTensor& M, int max_level
                         rsc_ncomm_);
         outfile->Printf("\n    Please increase DSRG_RSC_NCOMM.");
     }
+}
+
+double SA_MRDSRG::get_adaptive_rsc_conv(const int& iter, const double& deltaE) {
+    // A (log)-ReLU-like kick in for adaptive RSC conv to kick in
+    if (iter == 1 || std::fabs(deltaE) >= rsc_conv_adapt_delta_e_) {
+        return rsc_conv_adapt_threshold_;
+    }
+    // Linear interpolation between the upper and lower threshold exponents
+    double x = (std::log10(std::fabs(deltaE)) - std::log10(rsc_conv_adapt_delta_e_)) /
+               (std::log10(e_conv_) - std::log10(rsc_conv_adapt_delta_e_));
+    double exponent = std::log10(rsc_conv_adapt_threshold_) +
+                      x * (std::log10(rsc_conv_) - std::log10(rsc_conv_adapt_threshold_));
+    double threshold = std::pow(10.0, exponent);
+    return threshold;
 }
 
 } // namespace forte

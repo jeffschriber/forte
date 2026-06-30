@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -86,9 +86,6 @@ class FCISolver : public ActiveSpaceMethod {
 
     /// Set the number of determinants per root to use to form the initial guess
     void set_ndets_per_guess_state(size_t value);
-
-    /// Set the maximum number of DL iterations
-    void set_maxiter_davidson(int value);
 
     /// Set the number of guess vectors to use
     void set_guess_per_root(int value);
@@ -173,8 +170,6 @@ class FCISolver : public ActiveSpaceMethod {
     size_t subspace_per_root_ = 4;
     /// The number of determinants selected for each guess vector
     size_t ndets_per_guess_ = 10;
-    /// Iterations for FCI
-    int maxiter_davidson_ = 30;
     /// Test the RDMs?
     bool test_rdms_ = false;
     /// Print the NO from the 1-RDM

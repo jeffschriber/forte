@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -30,6 +30,7 @@
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
+#include <iomanip>
 
 #include "psi4/psi4-dec.h"
 
@@ -92,6 +93,35 @@ void read_disk_vector_double(const std::string& filename, std::vector<double>& d
     in.close();
 }
 
+void write_psi_vector(const std::string& filename, psi::Vector vec, psi::Dimension padding,
+                      bool overwrite) {
+    // check if file exists or not
+    struct stat buf;
+    if (stat(filename.c_str(), &buf) == 0) {
+        if (overwrite) {
+            // delete the file
+            if (remove(filename.c_str()) != 0) {
+                std::string msg = "Error when deleting " + filename;
+                perror(msg.c_str());
+            }
+        } else {
+            std::string error = "File " + filename + " already exists.";
+            throw psi::PSIEXCEPTION(error.c_str());
+        }
+    }
+
+    std::ofstream file(filename);
+    file << "# Irrep  Index  Value";
+    for (int h = 0, nirrep = vec.nirrep(); h < nirrep; ++h) {
+        for (int i = 0, limit = vec.dim(h), shift = padding[h]; i < limit; ++i) {
+            file << '\n' << h << "  " << std::setw(6) << i + shift;
+            file << std::scientific << std::setprecision(12);
+            file << std::setw(20) << vec.get(h, i);
+        }
+    }
+    file.close();
+}
+
 void write_psi_matrix(const std::string& filename, const psi::Matrix& mat, bool overwrite) {
     int nirrep = mat.nirrep();
     int symmetry = mat.symmetry();
@@ -139,10 +169,11 @@ void dump_occupations(const std::string& filename,
     int nirrep = -1;
     std::vector<std::string> spaces;
     for (const auto& [space_name, dim] : occ_map) {
+        int n = static_cast<int>(dim.n());
         if (nirrep == -1) {
-            nirrep = dim.n();
+            nirrep = n;
         } else {
-            if (dim.n() != nirrep)
+            if (nirrep != n)
                 throw std::runtime_error("Inconsistent number of irreps!");
         }
         spaces.push_back(space_name);

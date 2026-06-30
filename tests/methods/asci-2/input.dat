@@ -7,7 +7,7 @@ import forte
 #   In this test we use a smaller basis (6-31G)
 
 refscf = -75.34896498316222
-refasci = -75.625013576139
+refasci = -75.62501357754
 
 molecule C2{
 0 1
@@ -37,6 +37,7 @@ set forte {
   asci_e_convergence 1e-5
   sci_project_out_spin_contaminants false
   spin_project_full false
+  mcscf_reference false
 }
 
 Escf, scf_wfn = energy('scf', return_wfn=True)

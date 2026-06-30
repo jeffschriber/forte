@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER,
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER,
  * AUTHORS).
  *
  * The copyrights for code used from other parties are included in
@@ -73,6 +73,9 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
     using BitArray<N>::operator&;
     using BitArray<N>::fast_a_xor_b_count;
     using BitArray<N>::fast_a_and_b_eq_zero;
+    using BitArray<N>::find_first_one;
+    using BitArray<N>::find_last_one;
+    using BitArray<N>::zero;
 
     /// the number of bits divided by two
     static constexpr size_t nbits_half = N / 2;
@@ -105,6 +108,27 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
         int b_size = occupation_b.size();
         for (int p = 0; p < b_size; ++p)
             set_beta_bit(p, occupation_b[p]);
+    }
+
+    /// Construct the determinant from two initializer lists that specify which orbitals are
+    /// occupied in the alpha and beta strings.  alfa_list = [Ia] and beta_list = [Ib]
+    explicit DeterminantImpl(std::initializer_list<size_t> alfa_list,
+                             std::initializer_list<size_t> beta_list) {
+        for (auto i : alfa_list) {
+            set_alfa_bit(i, true);
+        }
+        for (auto i : beta_list) {
+            set_beta_bit(i, true);
+        }
+    }
+
+    explicit DeterminantImpl(std::vector<size_t> alfa_list, std::vector<size_t> beta_list) {
+        for (auto i : alfa_list) {
+            set_alfa_bit(i, true);
+        }
+        for (auto i : beta_list) {
+            set_beta_bit(i, true);
+        }
     }
 
     /// Construct the determinant from an occupation vector that
@@ -150,6 +174,28 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
         for (size_t n = 0; n < nwords_half; n++) {
             words_[n] = sa.get_word(n);
             words_[n + nwords_half] = sb.get_word(n);
+        }
+    }
+
+    void set_alfa_str(const BitArray<nbits_half>& sa) {
+        for (size_t n = 0; n < nwords_half; n++) {
+            words_[n] = sa.get_word(n);
+        }
+    }
+
+    void set_beta_str(const BitArray<nbits_half>& sb) {
+        for (size_t n = 0; n < nwords_half; n++) {
+            words_[n + nwords_half] = sb.get_word(n);
+        }
+    }
+
+    void set(std::initializer_list<size_t> alfa_list, std::initializer_list<size_t> beta_list) {
+        zero();
+        for (auto i : alfa_list) {
+            set_alfa_bit(i, true);
+        }
+        for (auto i : beta_list) {
+            set_beta_bit(i, true);
         }
     }
 
@@ -403,6 +449,55 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
         }
     };
 
+    /// Compares a subset of the words of this determinant with the words of another determinant
+    bool equal(const size_t start, const size_t end, const DeterminantImpl<N>& d) const {
+        for (size_t n = start; n < end; n++) {
+            if (words_[n] != d.words_[n])
+                return false;
+        }
+        return true;
+    }
+
+    /// Compares the alpha part of this determinant with the alpha part of another determinant
+    bool equal_alfa(const DeterminantImpl<N>& d) const {
+        if constexpr (N == 128) {
+            return words_[0] == d.words_[0];
+        } else if constexpr (N == 256) {
+            return words_[0] == d.words_[0] and words_[1] == d.words_[1];
+        } else {
+            return equal(0, nwords_half, d);
+        }
+    }
+
+    /// Compares the beta part of this determinant with the beta part of another determinant
+    bool equal_beta(const DeterminantImpl<N>& d) const {
+        if constexpr (N == 128) {
+            return words_[1] == d.words_[1];
+        } else if constexpr (N == 256) {
+            return words_[2] == d.words_[2] and words_[3] == d.words_[3];
+        } else {
+            return equal(nwords_half, nwords_, d);
+        }
+    }
+
+    /// Find the index of the first alpha bit set to 1
+    uint64_t find_first_one_alfa() const { return find_first_one(0, nwords_half); }
+
+    /// Find the index of the first beta bit set to 1 (spatial orbital index)
+    uint64_t find_first_one_beta() const {
+        if (auto res = find_first_one(nwords_half, nwords_); res != ~uint64_t(0))
+            return res - norb();
+        return ~uint64_t(0);
+    }
+
+    uint64_t find_last_one_alfa() const { return find_last_one(0, nwords_half); }
+
+    uint64_t find_last_one_beta() const {
+        if (auto res = find_last_one(nwords_half, nwords_); res != ~uint64_t(0))
+            return res - norb();
+        return ~uint64_t(0);
+    }
+
     /// Return the number of alpha/beta pairs
     int npair() const {
         int count = 0;
@@ -486,7 +581,7 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
         }
     }
 
-    BitArray<nbits_half> get_bits(DetSpinType spin_type) {
+    BitArray<nbits_half> get_bits(DetSpinType spin_type) const {
         return (spin_type == DetSpinType::Alpha ? get_alfa_bits() : get_beta_bits());
     }
 
@@ -500,6 +595,37 @@ template <size_t N> class DeterminantImpl : public BitArray<N> {
     void zero_beta() {
         for (size_t n = nwords_half; n < nwords_; n++)
             words_[n] = u_int64_t(0);
+    }
+
+    /// Swap the alpha and beta bits of a determinant
+    DeterminantImpl<N> spin_flip() const {
+        DeterminantImpl<N> d(*this);
+        for (size_t n = 0; n < nwords_half; n++) {
+            std::swap(d.words_[n], d.words_[n + nwords_half]);
+        }
+        return d;
+    }
+
+    /// Describe the excitation connection of a determinant relative to this one
+    /// The excitation connection is a vector of 4 vectors:
+    /// [[alfa holes], [alfa particles], [beta holes], [beta particles]]
+    std::vector<std::vector<size_t>> excitation_connection(const DeterminantImpl<N>& d) const {
+        std::vector<std::vector<size_t>> excitation(4);
+        for (size_t i = 0; i < nbits_half; i++) {
+            if (get_alfa_bit(i) and not d.get_alfa_bit(i)) {
+                excitation[0].push_back(i);
+            }
+            if (not get_alfa_bit(i) and d.get_alfa_bit(i)) {
+                excitation[1].push_back(i);
+            }
+            if (get_beta_bit(i) and not d.get_beta_bit(i)) {
+                excitation[2].push_back(i);
+            }
+            if (not get_beta_bit(i) and d.get_beta_bit(i)) {
+                excitation[3].push_back(i);
+            }
+        }
+        return excitation;
     }
 };
 
@@ -534,6 +660,11 @@ std::string str(const DeterminantImpl<N>& d, int n = DeterminantImpl<N>::nbits_h
     }
     s += ">";
     return s;
+}
+
+template <size_t N> std::ostream& operator<<(std::ostream& os, const DeterminantImpl<N>& d) {
+    os << str(d);
+    return os;
 }
 
 template <size_t N> void set_str(DeterminantImpl<N>& d, const std::string& str) {
@@ -668,29 +799,8 @@ double gen_excitation(DeterminantImpl<N>& d, const std::vector<int>& aann,
 }
 
 template <size_t N>
-double can_apply_op(DeterminantImpl<N>& d, const DeterminantImpl<N>& ann,
-                    const DeterminantImpl<N>& cre) {
-    DeterminantImpl<N> temp(d);
-    // check if the orbitals annihilated are occupied
-    // d       = 1100
-    // ann     = 1000
-    // d & ann = 1000
-    temp &= ann;
-    if (temp != ann)
-        return 0.0;
-    // check if the orbitals created are empty
-    // d       = 1100
-    // cre     = 0010
-    // d & cre = 0000
-    temp = d;
-    temp &= cre;
-    if (temp.count() != 0)
-        return 0.0;
-}
-
-template <size_t N>
-double apply_op(DeterminantImpl<N>& d, const DeterminantImpl<N>& cre,
-                const DeterminantImpl<N>& ann) {
+double apply_operator_to_det(DeterminantImpl<N>& d, const DeterminantImpl<N>& cre,
+                             const DeterminantImpl<N>& ann) {
     // loop over the annihilation operators (in ascending order)
     DeterminantImpl<N> temp(ann); // temp is for bookkeeping
     size_t n = temp.count();
@@ -732,89 +842,70 @@ double apply_op(DeterminantImpl<N>& d, const DeterminantImpl<N>& cre,
     return sign;
 }
 
-/// this function assumes we can apply this operator to the determinant.
+///
 /// So there are no checks in place
+/// @brief Apply a general operator to this determinant. This function assumes we can apply this
+/// operator to the determinant and should be used only after faster_can_apply_operator has been
+/// used to check if the operator can be applied to the determinant.
+/// @param d the determinant
+/// @param new_d the new determinant
+/// @param cre the creation operator
+/// @param ann the annihilation operator
+/// @param sign the sign mask (precomputed by the user) of the operator
+/// @return the sign of the final determinant (+1, -1)
+///
+/// @note This function is faster than apply_operator_to_det
+/// Example:
+///
+///   Determinant det, new_det, cre, ann, sign_mask, idx;
+///   // test if the operator can be applied
+///   if (det.faster_can_apply_operator(cre,ann)) {
+///       // compute the sign mask
+///       compute_sign_mask(cre, ann, sign_mask, idx);
+///       auto value = faster_apply_operator_to_det(det, new_det, cre, ann, sign_mask);
+///       // do something with value and new_det
+///   }
+///
 template <size_t N>
-double apply_op_safe(DeterminantImpl<N>& d, const DeterminantImpl<N>& cre,
-                     const DeterminantImpl<N>& ann) {
-    // loop over the annihilation operators (in ascending order)
-    DeterminantImpl<N> temp(ann); // temp is for bookkeeping
-    size_t n = temp.count();
-    double sign = 1.0;
-    for (size_t i = 0; i < n; ++i) {
-        // find the next annihilation operator
-        const uint64_t orb = temp.find_and_clear_first_one();
-        // we assume this bit is set
-        // compute the sign
-        sign *= d.slater_sign(orb);
-        // set the bit to zero
-        d.set_bit(orb, false);
+inline double faster_apply_operator_to_det(const DeterminantImpl<N>& d, DeterminantImpl<N>& new_d,
+                                           const DeterminantImpl<N>& cre,
+                                           const DeterminantImpl<N>& ann,
+                                           const DeterminantImpl<N>& sign) {
+    size_t n = 0;
+    if constexpr (N == 128) {
+        // specialization for 64 + 64 bits
+        new_d.words_[0] = d.words_[0] & (~ann.words_[0]);
+        new_d.words_[1] = d.words_[1] & (~ann.words_[1]);
+        n += ui64_bit_count(new_d.words_[0] & sign.words_[0]);
+        n += ui64_bit_count(new_d.words_[1] & sign.words_[1]);
+        new_d.words_[0] |= cre.words_[0];
+        new_d.words_[1] |= cre.words_[1];
+    } else if constexpr (N == 256) {
+        new_d.words_[0] = d.words_[0] & (~ann.words_[0]);
+        new_d.words_[1] = d.words_[1] & (~ann.words_[1]);
+        new_d.words_[2] = d.words_[2] & (~ann.words_[2]);
+        new_d.words_[3] = d.words_[3] & (~ann.words_[3]);
+        n += ui64_bit_count(new_d.words_[0] & sign.words_[0]);
+        n += ui64_bit_count(new_d.words_[1] & sign.words_[1]);
+        n += ui64_bit_count(new_d.words_[2] & sign.words_[2]);
+        n += ui64_bit_count(new_d.words_[3] & sign.words_[3]);
+        new_d.words_[0] |= cre.words_[0];
+        new_d.words_[1] |= cre.words_[1];
+        new_d.words_[2] |= cre.words_[2];
+        new_d.words_[3] |= cre.words_[3];
+    } else {
+        // loop over the words
+        for (size_t i = 0; i < DeterminantImpl<N>::nwords_; ++i) {
+            // apply the annihilation operator
+            new_d.words_[i] = d.words_[i] & (~ann.words_[i]);
+            // compute the sign
+            n += ui64_bit_count(new_d.words_[i] & sign.words_[i]);
+            // apply the creation operator
+            new_d.words_[i] |= cre.words_[i];
+        }
     }
-    // loop over the creation operators (in ascending order)
-    temp = cre;
-    n = temp.count();
-    for (size_t i = 0; i < n; ++i) {
-        // find the next creation operator
-        const uint64_t orb = temp.find_and_clear_first_one();
-        // we assume this bit is unset
-        // compute the sign
-        sign *= d.slater_sign(orb);
-        // set the bit to zero
-        d.set_bit(orb, true);
-    }
-    // the creation operators are applied in the opposite order of the way
-    // they are supposed to be applied (we should apply them in descending order).
-    // this factor keeps into account the permutation sign for
-    // reversing the order of the creation operators.
-    sign *= 1.0 - 2.0 * ((n / 2) % 2);
-    return sign;
+    return 1.0 - 2.0 * (n & 1);
 }
-
-//    temp = cre;
-//    n = temp.count();
-//    // make sure we can annihilate the orbitals
-//    DeterminantImpl<N> temp = ann;
-//    // check if the orbitals annihilated are occupied
-//    // d       = 1100
-//    // ann     = 1000
-//    // d & ann = 1000
-//    temp &= d;
-//    if (temp != ann) {
-//        std::cout << "apply_op: early exit!" << std::endl;
-//        return 0.0;
-//    }
-
-//    // consider only the creation operators that are not included in the annihilation part
-//    temp = cre & ~ann;
-
-//    if (temp != ann) {
-
-//    }
-
-//    // ann     = 1000
-//    // cre     = 0010
-
-//    // ann     = 1000
-//    // cre     = 1000
-//    // check if the orbitals annihilated are occupied
-//    // d       = 1100
-//    // ann     = 1000
-//    // d & ann = 1000
-//    if ((d & ann) != ann)
-//        return 0.0;
-//    // check if the orbitals created are empty
-//    // d       = 1100
-//    // cre     = 0010
-//    // d & cre = 0000
-//    temp = d;
-//    temp &= cre;
-//    if (temp.count() != 0)
-//        return 0.0;
-//        std::cout << str(d,4) << std::endl;
-//        std::cout << orb << std::endl;
-//        std::cout << d.slater_sign(orb) << std::endl;
-//        std::cout << d.get_bit(orb) << std::endl;
-//        std::cout << "\n" << std::endl;
 
 template <size_t N> double spin2(const DeterminantImpl<N>& lhs, const DeterminantImpl<N>& rhs) {
     int nmo = DeterminantImpl<N>::nbits_half;

@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -37,6 +37,8 @@
 #include "psi4/libpsi4util/PsiOutStream.h"
 
 #include "base_classes/forte_options.h"
+#include "base_classes/scf_info.h"
+
 #include "helpers/blockedtensorfactory.h"
 #include "helpers/helpers.h"
 #include "helpers/printing.h"
@@ -51,25 +53,12 @@ using namespace ambit;
 
 SemiCanonical::SemiCanonical(std::shared_ptr<MOSpaceInfo> mo_space_info,
                              std::shared_ptr<ForteIntegrals> ints,
-                             std::shared_ptr<ForteOptions> foptions, bool quiet)
-    : mo_space_info_(mo_space_info), ints_(ints), print_(not quiet), fix_orbital_success_(true) {
-    read_options(foptions);
-    // initialize the dimension objects
-    startup();
-}
-
-void SemiCanonical::read_options(const std::shared_ptr<ForteOptions>& foptions) {
-    inactive_mix_ = foptions->get_bool("SEMI_CANONICAL_MIX_INACTIVE");
-    active_mix_ = foptions->get_bool("SEMI_CANONICAL_MIX_ACTIVE");
-
-    // compute thresholds from options
-    double econv = foptions->get_double("E_CONVERGENCE");
-    threshold_tight_ = (econv < 1.0e-12) ? 1.0e-12 : econv;
-    if (ints_->integral_type() == Cholesky) {
-        double cd_tlr = foptions->get_double("CHOLESKY_TOLERANCE");
-        threshold_tight_ = (threshold_tight_ < 0.5 * cd_tlr) ? 0.5 * cd_tlr : threshold_tight_;
-    }
-    threshold_loose_ = 10.0 * threshold_tight_;
+                             std::shared_ptr<SCFInfo> scf_info, bool inactive_mix, bool active_mix,
+                             double threshold, bool quiet)
+    : mo_space_info_(mo_space_info), ints_(ints), scf_info_(scf_info), print_(not quiet),
+      inactive_mix_(inactive_mix), active_mix_(active_mix), threshold_tight_(threshold),
+      fix_orbital_success_(true) {
+    startup(); // initialize the dimension objects
 }
 
 void SemiCanonical::startup() {
@@ -89,7 +78,7 @@ void SemiCanonical::startup() {
     set_U_to_identity();
 
     // Find the elementary blocks
-    auto composite_spaces = mo_space_info_->composite_space_names();
+    auto composite_spaces = mo_space_info_->composite_spaces_def();
     auto docc_names = inactive_mix_ ? std::vector<std::string>{"INACTIVE_DOCC"}
                                     : composite_spaces["INACTIVE_DOCC"];
     auto actv_names = active_mix_ ? std::vector<std::string>{"ACTIVE"} : composite_spaces["ACTIVE"];
@@ -115,6 +104,8 @@ void SemiCanonical::startup() {
             offset += mo_dims_[space][h];
         }
     }
+
+    threshold_loose_ = 10.0 * threshold_tight_;
 }
 
 void SemiCanonical::set_U_to_identity() {
@@ -128,14 +119,14 @@ void SemiCanonical::set_U_to_identity() {
         [&](const std::vector<size_t>& i, double& value) { value = (i[0] == i[1]) ? 1.0 : 0.0; });
 }
 
-void SemiCanonical::semicanonicalize(std::shared_ptr<RDMs> rdms, const bool& build_fock,
-                                     const bool& nat_orb, const bool& transform) {
+void SemiCanonical::semicanonicalize(std::shared_ptr<RDMs> rdms, bool build_fock,
+                                     ActiveOrbitalType orb_type, bool transform) {
     timer t_semi("semicanonicalize orbitals");
 
     print_h2("Semicanonicalize Orbitals");
     auto true_or_false = [](bool x) { return x ? "TRUE" : "FALSE"; };
-    outfile->Printf("\n    MIX INACTIVE ORBITALS         %5s", true_or_false(inactive_mix_));
-    outfile->Printf("\n    MIX GAS ACTIVE ORBITALS       %5s", true_or_false(active_mix_));
+    outfile->Printf("\n    MIX INACTIVE ORBITALS         %s", true_or_false(inactive_mix_));
+    outfile->Printf("\n    MIX GAS ACTIVE ORBITALS       %s", true_or_false(active_mix_));
 
     // build Fock matrix
     if (build_fock) {
@@ -148,36 +139,34 @@ void SemiCanonical::semicanonicalize(std::shared_ptr<RDMs> rdms, const bool& bui
     }
 
     // build transformation matrix based on Fock or 1-RDM
-    bool already_semi = check_orbitals(rdms, nat_orb);
+    bool already_semi = check_orbitals(rdms, orb_type);
     build_transformation_matrices(already_semi);
     if (transform and (not already_semi)) {
-        ints_->rotate_orbitals(Ua_, Ub_);
+        scf_info_->rotate_orbitals(Ua_, Ub_);
+        // ints_->rotate_orbitals(Ua_, Ub_);
         rdms->rotate(Ua_t_, Ub_t_);
     }
     if (print_)
         print_timing("orbital canonicalization", t_semi.stop());
 }
 
-bool SemiCanonical::check_orbitals(std::shared_ptr<RDMs> rdms, const bool& nat_orb) {
+bool SemiCanonical::check_orbitals(std::shared_ptr<RDMs> rdms, ActiveOrbitalType orb_type) {
     bool semi = true;
 
     // print orbitals requested
-    std::string nat = nat_orb ? "NATURAL" : "CANONICAL";
-    for (const auto& pair : mo_dims_) {
-        std::string name = pair.first;
-        if (name.find("GAS") != std::string::npos) {
-            if (pair.second.sum() != 0) {
-                outfile->Printf("\n    %-15s              %10s", name.c_str(), nat.c_str());
+    for (const auto& [name, npi] : mo_dims_) {
+        if (mo_space_info_->contained_in_space(name, "ACTIVE")) {
+            if (npi.sum() != 0) {
+                outfile->Printf("\n    %-15s%15c%s", name.c_str(), ' ',
+                                orb_type.toString().c_str());
             }
-        } else if (name.find("ACTIVE") != std::string::npos) {
-            outfile->Printf("\n    %-15s              %10s", name.c_str(), nat.c_str());
         } else {
-            outfile->Printf("\n    %-15s              %10s", name.c_str(), "CANONICAL");
+            outfile->Printf("\n    %-15s%15c%s", name.c_str(), ' ', "CANONICAL");
         }
     }
 
     // prepare data blocks
-    prepare_matrix_blocks(rdms, nat_orb);
+    prepare_matrix_blocks(rdms, orb_type);
 
     // check data blocks
     int width = 18 + 2 + 13 + 2 + 13;
@@ -188,9 +177,8 @@ bool SemiCanonical::check_orbitals(std::shared_ptr<RDMs> rdms, const bool& nat_o
         outfile->Printf("\n    %s", dash.c_str());
     }
 
-    for (const auto& pair : mats_) {
-        std::string name = pair.first;
-        auto M = pair.second->clone();
+    for (const auto& [name, M_orig] : mats_) {
+        auto M = M_orig->clone();
         M->zero_diagonal();
         double v_max = M->absmax();
         double v_norm = std::sqrt(M->sum_of_squares());
@@ -215,7 +203,7 @@ bool SemiCanonical::check_orbitals(std::shared_ptr<RDMs> rdms, const bool& nat_o
     return semi;
 }
 
-void SemiCanonical::prepare_matrix_blocks(std::shared_ptr<RDMs> rdms, const bool& nat_orb) {
+void SemiCanonical::prepare_matrix_blocks(std::shared_ptr<RDMs> rdms, ActiveOrbitalType orb_type) {
     mats_.clear();
 
     // Fock alpha should be the same as beta
@@ -230,21 +218,29 @@ void SemiCanonical::prepare_matrix_blocks(std::shared_ptr<RDMs> rdms, const bool
     auto docc_offset = mo_space_info_->dimension("INACTIVE_DOCC");
 
     // loop over orbital spaces
-    for (const auto& name_dim_pair : mo_dims_) {
-        std::string name = name_dim_pair.first;
-        psi::Dimension npi = name_dim_pair.second;
-
+    for (const auto& [name, npi] : mo_dims_) {
         // filter out zero dimension blocks
         if (npi.sum() == 0)
             continue;
 
         // fill data
         auto slice = mo_space_info_->range(name);
-        if (nat_orb and name.find("OCC") == std::string::npos) {
-            auto actv_slice = psi::Slice(slice.begin() - docc_offset, slice.end() - docc_offset);
-            mats_[name] = d1->get_block(actv_slice, actv_slice);
-            mats_[name]->set_name("D1 " + name);
+        if (mo_space_info_->contained_in_space(name, "ACTIVE")) {
+            if (orb_type == ActiveOrbitalType::unspecified) {
+                continue;
+            } else if (orb_type == ActiveOrbitalType::natural) {
+                // For natural orbitals, diagonalize the 1-RDM in the active space
+                auto actv_slice =
+                    psi::Slice(slice.begin() - docc_offset, slice.end() - docc_offset);
+                mats_[name] = d1->get_block(actv_slice, actv_slice);
+                mats_[name]->set_name("D1 " + name);
+            } else {
+                // By default, diagonalize the Fock in the active space
+                mats_[name] = fock->get_block(slice, slice);
+                mats_[name]->set_name("Fock " + name);
+            }
         } else {
+            // for all other spaces always diagonalize the Fock matrix
             mats_[name] = fock->get_block(slice, slice);
             mats_[name]->set_name("Fock " + name);
         }
@@ -261,11 +257,8 @@ void SemiCanonical::build_transformation_matrices(const bool& semi) {
     }
 
     // loop over data blocks
-    for (const auto& pair : mats_) {
-        std::string name = pair.first;
-
+    for (const auto& [name, M] : mats_) {
         if (checked_results_[name]) {
-            auto M = pair.second;
             // natural orbital in descending order, canonical orbital in ascending order
             bool ascending = M->name().find("Fock") != std::string::npos;
 
@@ -281,7 +274,8 @@ void SemiCanonical::build_transformation_matrices(const bool& semi) {
     }
 
     // keep phase and order unchanged
-    fix_orbital_success_ = ints_->fix_orbital_phases(Ua_, true);
+    if (!inactive_mix_)
+        fix_orbital_success_ = ints_->fix_orbital_phases(Ua_, true);
 
     // fill in Ua_t_
     fill_Uactv(Ua_, Ua_t_);
@@ -293,7 +287,7 @@ void SemiCanonical::build_transformation_matrices(const bool& semi) {
 
 void SemiCanonical::fill_Uactv(const std::shared_ptr<psi::Matrix>& U, ambit::Tensor& Ut) {
     auto actv_names = active_mix_ ? std::vector<std::string>{"ACTIVE"}
-                                  : mo_space_info_->composite_space_names()["ACTIVE"];
+                                  : mo_space_info_->composite_spaces_def().at("ACTIVE");
     auto& Ut_data = Ut.data();
 
     for (const std::string& name : actv_names) {
@@ -304,12 +298,11 @@ void SemiCanonical::fill_Uactv(const std::shared_ptr<psi::Matrix>& U, ambit::Ten
         auto pos = mo_space_info_->pos_in_space(name, "ACTIVE");
         auto relative_mos = mo_space_info_->relative_mo(name);
         for (size_t p = 0; p < size; ++p) {
-            size_t hp = relative_mos[p].first;
-            size_t np = relative_mos[p].second;
+            const auto& [hp, np] = relative_mos[p];
             for (size_t q = 0; q < size; ++q) {
-                if (hp != relative_mos[q].first)
+                const auto& [hq, nq] = relative_mos[q];
+                if (hp != hq)
                     continue;
-                size_t nq = relative_mos[q].second;
                 Ut_data[pos[p] * nact_ + pos[q]] = U->get(hp, np, nq);
             }
         }

@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <complex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -53,7 +54,28 @@ template <typename T> std::string to_string_with_precision(const T val, const in
     std::ostringstream out;
     out.precision(n);
     out << std::fixed << val;
-    return out.str();
+    auto s = out.str();
+    s.erase(s.find_last_not_of('0') + 1, std::string::npos);
+    if (s.back() == '.') {
+        s.pop_back();
+    }
+    return s;
+}
+
+template <typename T> inline std::string to_string_latex(T value) {
+    if (value == T(-1)) {
+        return "-";
+    }
+    if (value == T(1)) {
+        return "";
+    }
+    if constexpr (std::is_same_v<T, std::complex<double>>) {
+        return "(" + std::to_string(std::real(value)) + " + " + std::to_string(std::imag(value)) +
+               " i)";
+    }
+    if constexpr (std::is_same_v<T, double>) {
+        return std::to_string(value);
+    }
 }
 
 /// Find a string in a vector of strings in a case insensitive

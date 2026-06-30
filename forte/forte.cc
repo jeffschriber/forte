@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -26,25 +26,20 @@
  * @END LICENSE
  */
 
-#include <fstream>
+// #include <fstream>
+// #include "ambit/tensor.h"
+// #include "psi4/libpsi4util/process.h"
 
-#include "ambit/tensor.h"
-
-#include "psi4/libpsi4util/process.h"
-
-#include "orbital-helpers/aosubspace.h"
-#include "orbital-helpers/orbital_embedding.h"
-#include "base_classes/forte_options.h"
-#include "base_classes/mo_space_info.h"
-#include "helpers/timer.h"
-
-#include "sparse_ci/determinant.h"
 #include "version.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/psi4-dec.h"
 
 #ifdef HAVE_CHEMPS2
 #include "dmrg/dmrgsolver.h"
+#endif
+
+#ifdef HAVE_BLOCK2
+#include "dmrg/block2_dmrg_solver.h"
 #endif
 
 #ifdef HAVE_GA

@@ -1,7 +1,7 @@
 import forte
 
 refmcscf     = -99.406065223639615
-refdsrgpt3   = -99.49890326663
+refdsrgpt3   = -99.49890326787647
 
 molecule HF{
   0 1
@@ -22,8 +22,8 @@ set forte{
    active                [2,0,0,0]
    root_sym              0
    nroot                 1
-   casscf_e_convergence  12
-   casscf_g_convergence  8
+   mcscf_e_convergence  12
+   mcscf_g_convergence  8
 }
 
 Emcscf, wfn = energy('forte', return_wfn=True)

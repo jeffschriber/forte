@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -149,6 +149,10 @@ std::pair<double, std::string> to_xb(size_t nele, size_t type_size) {
 }
 
 void matrix_transpose_in_place(std::vector<double>& data, const size_t m, const size_t n) {
+    matrix_transpose_in_place(data.data(), m, n);
+}
+
+void matrix_transpose_in_place(double* data, const size_t m, const size_t n) {
     int nthreads = std::min(omp_get_max_threads(), int(m > n ? n : m));
     std::vector<double> tmp(nthreads * (m > n ? m : n));
     auto tmp_begin = tmp.begin();

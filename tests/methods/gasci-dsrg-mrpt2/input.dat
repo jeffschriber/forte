@@ -32,10 +32,12 @@ set forte {
   gas2                  [5,0,2,2]
   gas1max               [2,1,1]
   gas1min               [2,1,1]
-  transition_dipoles    true
+  transition_dipoles    [[0,1,0]]
   e_convergence         8
   r_convergence         7
+  mcscf_reference      false
 }
+
 edsrg = energy('forte', ref_wfn = wfn)
 
 dip_a1 = variable("SINGLET <0A1|DM_Z|0A1> ENTRY 0")

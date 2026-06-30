@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -500,7 +500,7 @@ ambit::Tensor RDMsSpinDependent::SF_G1() const {
     return G1;
 }
 ambit::Tensor RDMsSpinDependent::SF_G2() const {
-    _test_rdm_level(3, "SF_G2");
+    _test_rdm_level(2, "SF_G2");
     auto G2 = g2aa_.clone();
     G2("pqrs") += g2bb_("pqrs");
     G2("pqrs") += g2ab_("pqrs");

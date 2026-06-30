@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -248,8 +248,8 @@ bool DavidsonLiuSolver::solve() {
         // if we do not add any new vector then we are in trouble and we better finish the
         // computation
         if (added == 0) {
+            print_footer();
             if (is_residual_converged) {
-                print_footer();
                 psi::outfile->Printf(
                     "\n\n  Davidson-Liu solver:  No new vectors added, but residual converged. "
                     "Finishing computation.");
@@ -259,13 +259,16 @@ bool DavidsonLiuSolver::solve() {
                 psi::outfile->Printf("\n\n  Davidson-Liu solver:  No new vectors added, and "
                                      "energy not converged. "
                                      "Finishing computation.");
+                get_results();
                 return false;
             }
         }
         lambda_old_->copy(*lambda_);
     }
 
+    print_footer();
     psi::outfile->Printf("\n\n  Davidson-Liu solver:  Maximum number of iterations reached.");
+    get_results();
     return false;
 }
 

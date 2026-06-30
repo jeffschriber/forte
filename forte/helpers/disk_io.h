@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER,
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER,
  * AUTHORS).
  *
  * The copyrights for code used from other parties are included in
@@ -70,6 +70,16 @@ void read_disk_vector_double(const std::string& filename, std::vector<double>& d
  */
 void dump_occupations(const std::string& filename,
                       std::unordered_map<std::string, psi::Dimension> occ_map);
+
+/**
+ * @brief Save a psi4 vector to file
+ * @param filename The file name
+ * @param vec The psi4 vector to be saved
+ * @param padding The index shifts
+ * @param overwrite Overwrite if the file exists
+ */
+void write_psi_vector(const std::string& filename, psi::Vector vec, psi::Dimension padding,
+                      bool overwrite = true);
 
 /// @brief Write a Psi4 Matrix to disk
 /// @param filename The file name

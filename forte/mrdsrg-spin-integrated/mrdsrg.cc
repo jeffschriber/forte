@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -28,18 +28,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <map>
 #include <vector>
 
-#include "psi4/libmints/molecule.h"
-#include "psi4/libpsi4util/process.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
-#include "psi4/libmints/molecule.h"
+#include "psi4/libpsio/psio.hpp"
 
-#define FMT_HEADER_ONLY
-#include "lib/fmt/core.h"
-
+#include "base_classes/forte_options.h"
 #include "base_classes/active_space_solver.h"
+
 #include "fci/fci_solver.h"
 #include "helpers/printing.h"
 #include "orbital-helpers/semi_canonicalize.h"
@@ -69,12 +67,6 @@ void MRDSRG::cleanup() {}
 
 void MRDSRG::read_options() {
     dsrg_trans_type_ = foptions_->get_str("DSRG_TRANS_TYPE");
-    if (dsrg_trans_type_ != "UNITARY") {
-        std::stringstream ss;
-        ss << "DSRG transformation type (" << dsrg_trans_type_
-           << ") is not implemented yet. Please change to UNITARY";
-        throw psi::PSIEXCEPTION(ss.str());
-    }
 
     corrlv_string_ = foptions_->get_str("CORR_LEVEL");
     std::vector<std::string> available{"PT2", "PT3", "LDSRG2", "LDSRG2_QC", "LSRG2", "SRG_PT2"};
@@ -138,7 +130,7 @@ void MRDSRG::startup() {
     // set up file name prefix
     restart_file_prefix_ = psi::PSIOManager::shared_object()->get_default_path() + "forte." +
                            std::to_string(getpid()) + "." +
-                           psi::Process::environment.molecule()->name();
+                           std::to_string(mo_space_info_->size("ACTIVE"));
     t1_file_chk_.clear();
     t2_file_chk_.clear();
     if (restart_amps_ and (relax_ref_ != "NONE") and
@@ -449,17 +441,17 @@ void MRDSRG::check_density(BlockedTensor& D, const std::string& name) {
     int n = labels.size();
     std::string sep(10 + 13 * n, '-');
     std::string indent = "\n    ";
-    std::string output = indent + fmt::format("{:<10}", name);
+    std::string output = indent + std::format("{:<10}", name);
     for (int i = 0; i < n; ++i)
-        output += fmt::format(" {:<12}", labels[i]);
+        output += std::format(" {:<12}", labels[i]);
     output += indent + sep;
 
-    output += indent + fmt::format("{:<10}", "max");
+    output += indent + std::format("{:<10}", "max");
     for (int i = 0; i < n; ++i)
-        output += fmt::format(" {:<12.6f}", maxes[i]);
-    output += indent + fmt::format("{:<10}", "norm");
+        output += std::format(" {:<12.6f}", maxes[i]);
+    output += indent + std::format("{:<10}", "norm");
     for (int i = 0; i < n; ++i)
-        output += fmt::format("{:<12.6f}", norms[i]);
+        output += std::format("{:<12.6f}", norms[i]);
     output += indent + sep;
     outfile->Printf("%s", output.c_str());
 }

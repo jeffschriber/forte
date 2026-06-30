@@ -1,9 +1,10 @@
-#! Generated using commit GITCOMMIT
-
 import forte
 
 refmcscf     = -15.569761360883527 #TEST
 refdsrgpt2   = -15.627184888920119 #TEST
+
+# we need to pass a molecule to psi4 anyway
+molecule {H}
 
 set forte{
    active_space_solver  fci

@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER,
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER,
  * AUTHORS).
  *
  * The copyrights for code used from other parties are included in
@@ -26,6 +26,8 @@
  *
  * @END LICENSE
  */
+
+#include <algorithm>
 
 #include "psi4/libmints/matrix.h"
 
@@ -83,4 +85,115 @@ make_hamiltonian_matrix(const std::vector<Determinant>& dets,
     }
     return H;
 }
+
+std::vector<std::vector<String>> make_strings(int n, int k, size_t nirrep,
+                                              const std::vector<int>& mo_symmetry) {
+    // n is the number of orbitals
+    // k is the number of electrons
+    std::vector<std::vector<String>> strings(nirrep);
+    if ((k >= 0) and (k <= n)) { // check that (n > 0) makes sense.
+        String I;
+        const auto I_begin = I.begin();
+        const auto I_end = I.begin() + n;
+        // Generate the string 00000001111111
+        //                      {n-k}  { k }
+        I.zero();
+        for (int i = std::max(0, n - k); i < n; ++i)
+            I[i] = true; // 1
+        do {
+            int sym{0};
+            for (int i = 0; i < n; ++i) {
+                if (I[i])
+                    sym ^= mo_symmetry[i];
+            }
+            strings[sym].push_back(I);
+        } while (std::next_permutation(I_begin, I_end));
+    }
+    return strings;
+}
+
+std::vector<Determinant> make_hilbert_space(size_t nmo, size_t na, size_t nb, Determinant ref, int truncation,
+                                            size_t nirrep, std::vector<int> mo_symmetry, int symmetry) {
+    std::vector<Determinant> dets;
+    if (mo_symmetry.size() != nmo) {
+        mo_symmetry = std::vector<int>(nmo, 0);
+    }
+    // find the maximum value in mo_symmetry and check that it is less than nirrep
+    int max_sym = *std::max_element(mo_symmetry.begin(), mo_symmetry.end());
+    if (max_sym >= static_cast<int>(nirrep)) {
+        throw std::runtime_error("The symmetry of the MOs is greater than the number of irreps.");
+    }
+    // implement other sensible checks, like making sure that symmetry is less than nirrep and na <=
+    // nmo, nb <= nmo
+    if (symmetry >= static_cast<int>(nirrep)) {
+        throw std::runtime_error(
+            "The symmetry of the determinants is greater than the number of irreps.");
+    }
+    if (na > nmo) {
+        throw std::runtime_error(
+            "The number of alpha electrons is greater than the number of MOs.");
+    }
+    if (nb > nmo) {
+        throw std::runtime_error("The number of beta electrons is greater than the number of MOs.");
+    }
+    if (truncation < 0 || truncation > static_cast<int>(na + nb)) {
+        throw std::runtime_error("The truncation level must an integer between 0 and na + nb.");
+    }
+
+    auto strings_a = make_strings(nmo, na, nirrep, mo_symmetry);
+    auto strings_b = make_strings(nmo, nb, nirrep, mo_symmetry);
+    for (size_t ha = 0; ha < nirrep; ha++) {
+        int hb = symmetry ^ ha;
+        for (const auto& Ia : strings_a[ha]) {
+            Determinant det;
+            det.set_alfa_str(Ia);
+            for (const auto& Ib : strings_b[hb]) {
+                det.set_beta_str(Ib);
+                if (det.fast_a_xor_b_count(ref) / 2 <= truncation) {
+                    dets.push_back(det);
+                } 
+            }
+        }
+    }
+    return dets;
+}
+
+std::vector<Determinant> make_hilbert_space(size_t nmo, size_t na, size_t nb, size_t nirrep,
+                                            std::vector<int> mo_symmetry, int symmetry) {
+    std::vector<Determinant> dets;
+    if (mo_symmetry.size() != nmo) {
+        mo_symmetry = std::vector<int>(nmo, 0);
+    }
+    // find the maximum value in mo_symmetry and check that it is less than nirrep
+    int max_sym = *std::max_element(mo_symmetry.begin(), mo_symmetry.end());
+    if (max_sym >= static_cast<int>(nirrep)) {
+        throw std::runtime_error("The symmetry of the MOs is greater than the number of irreps.");
+    }
+    // implement other sensible checks, like making sure that symmetry is less than nirrep and na <=
+    // nmo, nb <= nmo
+    if (symmetry >= static_cast<int>(nirrep)) {
+        throw std::runtime_error(
+            "The symmetry of the determinants is greater than the number of irreps.");
+    }
+    if (na > nmo) {
+        throw std::runtime_error(
+            "The number of alpha electrons is greater than the number of MOs.");
+    }
+    if (nb > nmo) {
+        throw std::runtime_error("The number of beta electrons is greater than the number of MOs.");
+    }
+
+    auto strings_a = make_strings(nmo, na, nirrep, mo_symmetry);
+    auto strings_b = make_strings(nmo, nb, nirrep, mo_symmetry);
+    for (size_t ha = 0; ha < nirrep; ha++) {
+        int hb = symmetry ^ ha;
+        for (const auto& Ia : strings_a[ha]) {
+            for (const auto& Ib : strings_b[hb]) {
+                dets.push_back(Determinant(Ia, Ib));
+            }
+        }
+    }
+    return dets;
+}
+
 } // namespace forte

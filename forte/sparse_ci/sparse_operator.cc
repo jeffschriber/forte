@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -28,8 +28,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
+#include <format>
 #include <numeric>
-#include <regex>
 
 #include "helpers/combinatorial.h"
 #include "helpers/timer.h"
@@ -39,112 +40,137 @@
 
 namespace forte {
 
-void SparseOperator::add_term(const std::vector<std::tuple<bool, bool, int>>& op_list,
-                              double coefficient, bool allow_reordering) {
-    op_list_.push_back(SQOperator(op_list, coefficient, allow_reordering));
+std::string format_term_in_sum(sparse_scalar_t coefficient, const std::string& term) {
+    // if (term == "[ ]") {
+    //     if (coefficient == 0.0) {
+    //         return "";
+    //     } else {
+    //         return (coefficient > 0.0 ? "+ " : "") + to_string_with_precision(coefficient, 12);
+    //     }
+    // }
+    // if (coefficient == 0.0) {
+    //     return "";
+    // } else if (coefficient == 1.0) {
+    //     return "+ " + term;
+    // } else if (coefficient == -1.0) {
+    //     return "- " + term;
+    // } else if (coefficient == static_cast<int>(coefficient)) {
+    //     return to_string_with_precision(coefficient, 12) + " * " + term;
+    // } else {
+    //     std::string s = to_string_with_precision(coefficient, 12);
+    //     s.erase(s.find_last_not_of('0') + 1, std::string::npos);
+    //     return s + " * " + term;
+    // }
+    // return "";
+    // if constexpr (std::is_same_v<sparse_scalar_t, std::complex<double>>) {
+    // }
+    // if constexpr (std::is_same_v<sparse_scalar_t, double>) {
+    //     return std::format("{} * {}", coefficient, term);
+    // }
+    return std::format("({} + {}i) * {}", std::real(coefficient), std::imag(coefficient), term);
 }
 
-void SparseOperator::add_term(const SQOperator& sqop) { op_list_.push_back(sqop); }
-
-std::vector<std::tuple<bool, bool, int>> sparse_parse_ops(const std::string& s) {
-    // reverse the operator order
-    auto clean_s = s.substr(1, s.size() - 2);
-
-    auto ops_str = split_string(clean_s, " ");
-    std::reverse(ops_str.begin(), ops_str.end());
-
-    std::vector<std::tuple<bool, bool, int>> ops_vec_tuple;
-    for (auto op_str : ops_str) {
-        size_t len = op_str.size();
-        bool creation = op_str[len - 1] == '+' ? true : false;
-        bool alpha = op_str[len - 2] == 'a' ? true : false;
-        int orb = stoi(op_str.substr(0, len - 2));
-        ops_vec_tuple.push_back(std::make_tuple(creation, alpha, orb));
-    }
-    return ops_vec_tuple;
-}
-
-void SparseOperator::add_term_from_str(std::string str, double coefficient, bool allow_reordering) {
-    // the regex to parse the entries
-    std::regex re("\\s*(\\[[0-9ab\\+\\-\\s]*\\])");
-    // the match object
-    std::smatch m;
-
-    // here we match terms of the form [<orb><a/b><+/-> ...], then parse the operator part
-    // and translate it into a term that is added to the operator.
-    //
-    if (std::regex_match(str, m, re)) {
-        if (m.ready()) {
-            auto ops_vec_tuple = sparse_parse_ops(m[1]);
-            if (is_antihermitian()) {
-                if (ops_vec_tuple.size() == 0) {
-                    throw std::runtime_error("SparseOperator: the operator " + str +
-                                             " contains a number component.\nThis is not allowed "
-                                             "for anti-Hermitian operators");
-                }
-            }
-            add_term(ops_vec_tuple, coefficient, allow_reordering);
-        }
-    } else {
-        std::string msg =
-            "add_term_from_str(std::string str, double value) could not parse the string " + str;
-        throw std::runtime_error(msg);
-    }
-}
-
-const SQOperator& SparseOperator::term(size_t n) const { return op_list_[n]; }
-
-std::vector<double> SparseOperator::coefficients() const {
-    std::vector<double> v;
-    for (const SQOperator& sqop : op_list_) {
-        v.push_back(sqop.coefficient());
-    }
-    return v;
-}
-
-void SparseOperator::set_coefficients(std::vector<double>& values) {
-    for (size_t n = 0, nmax = values.size(); n < nmax; ++n) {
-        op_list_[n].set_coefficient(values[n]);
-    }
-}
-
-void SparseOperator::pop_term() {
-    if (size() > 0) {
-        op_list_.pop_back();
-    }
-}
+// void SparseOperator::add_term(const SQOperator& sqop) { op_list_.push_back(sqop); }
 
 std::vector<std::string> SparseOperator::str() const {
     std::vector<std::string> v;
-    for (const SQOperator& sqop : op_list_) {
-        if (std::fabs(sqop.coefficient()) < 1.0e-12)
+    for (const auto& [sqop, c] : this->elements()) {
+        if (std::abs(c) < 1.0e-12)
             continue;
-        v.push_back(sqop.str());
-        if (is_antihermitian()) {
-            auto sqop_dagger = SQOperator(-sqop.coefficient(), sqop.ann(), sqop.cre());
-            v.push_back(sqop_dagger.str());
-        }
+        v.push_back(format_term_in_sum(c, sqop.str()));
     }
+    // sort v to guarantee a consistent order
+    std::sort(v.begin(), v.end());
     return v;
 }
 
 std::string SparseOperator::latex() const {
     std::vector<std::string> v;
-    for (const SQOperator& sqop : op_list_) {
-        v.push_back(sqop.latex());
-        if (is_antihermitian()) {
-            auto sqop_dagger = SQOperator(-sqop.coefficient(), sqop.ann(), sqop.cre());
-            v.push_back(sqop_dagger.latex());
-        }
+    for (const auto& [sqop, c] : this->elements()) {
+        const std::string s = to_string_latex(c) + "\\;" + sqop.latex();
+        v.push_back(s);
     }
-    return join(v, " ");
+    // sort v to guarantee a consistent order
+    std::sort(v.begin(), v.end());
+    return join(v, " + ");
 }
 
-SparseOperator SparseOperator::adjoint() const {
-    auto adjoint_operator = SparseOperator(antihermitian_);
-    for (const SQOperator& sqop : op_list_) {
-        adjoint_operator.add_term(sqop.adjoint());
-    }
-    return adjoint_operator;
+void SparseOperator::add_term_from_str(const std::string& s, sparse_scalar_t coefficient,
+                                       bool allow_reordering) {
+    auto [sqop, phase] = make_sq_operator_string(s, allow_reordering);
+    add(sqop, phase * coefficient);
 }
+
+SparseOperator SparseOperatorList::to_operator() const {
+    SparseOperator op;
+    for (const auto& [sqop, c] : elements()) {
+        op.add(sqop, c);
+    }
+    return op;
+}
+
+SparseOperator operator*(const SparseOperator& lhs, const SparseOperator& rhs) {
+    SparseOperator result;
+    for (const auto& [sqop_lhs, c_lhs] : lhs.elements()) {
+        for (const auto& [sqop_rhs, c_rhs] : rhs.elements()) {
+            const auto prod = sqop_lhs * sqop_rhs;
+            for (const auto& [sqop, c] : prod) {
+                if (c * c_lhs * c_rhs != 0.0) {
+                    result[sqop] += c * c_lhs * c_rhs;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+SparseOperator product(const SparseOperator& lhs, const SparseOperator& rhs) {
+    SQOperatorProductComputer computer;
+    SparseOperator C;
+    for (const auto& [lhs_op, lhs_c] : lhs.elements()) {
+        for (const auto& [rhs_op, rhs_c] : rhs.elements()) {
+            computer.product(
+                lhs_op, rhs_op, lhs_c * rhs_c,
+                [&C](const SQOperatorString& sqop, const sparse_scalar_t c) { C.add(sqop, c); });
+        }
+    }
+    return C;
+}
+
+SparseOperator commutator(const SparseOperator& lhs, const SparseOperator& rhs) {
+    // place the elements in a map to avoid duplicates and to simplify the addition
+    SQOperatorProductComputer computer;
+    SparseOperator C;
+    for (const auto& [lhs_op, lhs_c] : lhs.elements()) {
+        for (const auto& [rhs_op, rhs_c] : rhs.elements()) {
+            computer.commutator(
+                lhs_op, rhs_op, lhs_c * rhs_c,
+                [&C](const SQOperatorString& sqop, const sparse_scalar_t c) { C[sqop] += c; });
+        }
+    }
+    return C;
+}
+
+void SparseOperatorList::add_term_from_str(std::string str, sparse_scalar_t coefficient,
+                                           bool allow_reordering) {
+    auto [sqop, phase] = make_sq_operator_string(str, allow_reordering);
+    add(sqop, phase * coefficient);
+}
+
+std::vector<std::string> SparseOperatorList::str() const {
+    std::vector<std::string> v;
+    for (const auto& [sqop, c] : this->elements()) {
+        if (std::abs(c) < 1.0e-12)
+            continue;
+        v.push_back(format_term_in_sum(c, sqop.str()));
+    }
+    return v;
+}
+
+void SparseOperatorList::add_term(const std::vector<std::tuple<bool, bool, int>>& op_list,
+                                  double coefficient, bool allow_reordering) {
+    auto [sqop, sign] = make_sq_operator_string_from_list(op_list, allow_reordering);
+    add(sqop, sign * coefficient);
+}
+
 } // namespace forte

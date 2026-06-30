@@ -5,7 +5,7 @@
  * that implements a variety of quantum chemistry methods for strongly
  * correlated electrons.
  *
- * Copyright (c) 2012-2024 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
+ * Copyright (c) 2012-2025 by its authors (see COPYING, COPYING.LESSER, AUTHORS).
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -119,6 +119,9 @@ class MRDSRG_SO : public DynamicCorrelationSolver {
     double taylor_threshold_;
     /// Order of the Taylor expansion of f(z) = (1-exp(-z^2))/z
     int taylor_order_;
+
+    /// DSRG transformation type
+    std::string dsrg_trans_type_;
 
     std::shared_ptr<BlockedTensorFactory> BTF_;
     TensorType tensor_type_;
